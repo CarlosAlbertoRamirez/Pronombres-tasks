@@ -132,9 +132,14 @@ body{font-family:var(--font);background:radial-gradient(ellipse at 10% 10%,rgba(
 .eh-badge.wrong-badge{background:rgba(239,68,68,.12);color:var(--bad);border:1px solid rgba(239,68,68,.25)}
 .eh-exp{display:none;font-size:.79rem;color:var(--muted);margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.06);line-height:1.55}
 .eh-item.revealed .eh-exp{display:block}
-.eh-filters{display:flex;gap:7px;margin-bottom:13px;align-items:center;flex-wrap:wrap}
-.eh-f{border:0;border-radius:999px;padding:5px 13px;font-weight:700;font-family:var(--font);font-size:.74rem;cursor:pointer;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:var(--muted2);transition:.14s}
-.eh-f.on{background:rgba(37,217,255,.13);color:var(--cyan);border-color:rgba(37,217,255,.3)}
+.eh-judge-row{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
+.eh-judge-btn{border:0;border-radius:9px;padding:7px 16px;font-weight:800;font-family:var(--font);font-size:.82rem;cursor:pointer;transition:.14s;border:1.5px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:var(--text)}
+.eh-correct-btn:hover:not(:disabled){border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:#86efac}
+.eh-error-btn:hover:not(:disabled){border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#fca5a5}
+.eh-judge-btn:disabled{cursor:default;opacity:.5}
+.judge-chosen-ok{border-color:var(--good)!important;background:rgba(34,197,94,.18)!important;color:#86efac!important;opacity:1!important}
+.judge-chosen-err{border-color:var(--bad)!important;background:rgba(239,68,68,.14)!important;color:#fca5a5!important;opacity:1!important}
+.eh-correction{font-size:.82rem;font-weight:700;color:var(--good);margin-left:6px}
 
 /* ── EX 4: SORT ── */
 .sort-pile{display:flex;flex-wrap:wrap;gap:7px;padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;min-height:52px;margin-bottom:12px}
@@ -654,86 +659,108 @@ function answerContrast(idx,chosen){
 }
 
 /* ═══════════════════════════════════════════════════════
-   EX 3 — ERROR HUNT
+   EX 3 — ERROR HUNT (student judges each sentence)
 ═══════════════════════════════════════════════════════ */
 function renderErrorHunt(){
   eh_answered={};
+  let scoreOk=0, scoreErr=0;
+
   let html=`<div class="panel">
   <div class="ex-header">
     <div class="ex-title">🔍 Error hunter</div>
-    <div class="ex-instr">Some sentences have the <em>wrong pronoun</em> or a <em>missing pronoun</em>. Click each sentence to reveal whether it's correct or has an error.</div>
+    <div class="ex-instr">Read each sentence and decide: is the pronoun <em>correct</em> or does it have an <em>error</em>? Press the button — then see the explanation.</div>
   </div>
-  <div class="eh-filters">
-    <span style="font-size:.78rem;color:var(--muted2);font-weight:700">Filter:</span>
-    <button class="eh-f on" id="ehf-all" onclick="setEhFilter('all')">All</button>
-    <button class="eh-f" id="ehf-err" onclick="setEhFilter('err')">❌ Errors only</button>
-    <button class="eh-f" id="ehf-ok" onclick="setEhFilter('ok')">✅ Correct only</button>
+  <div class="score-bar">
+    <div class="sc"><span class="l">Total</span><span class="v">${ERRORS.length}</span></div>
+    <div class="sc"><span class="l">Aciertos</span><span class="v g" id="eh_ok">0</span></div>
+    <div class="sc"><span class="l">Errores</span><span class="v b" id="eh_err">0</span></div>
+    <div class="prog-w"><div class="prog-l">Progreso: <span id="eh_pct">0%</span></div><div class="prog-t"><div class="prog-f" id="eh_prog" style="width:0%"></div></div></div>
   </div>
   <div class="eh-list" id="ehList">`;
 
-  ERRORS.forEach(([sent,hasErr,,exp],idx)=>{
-    html+=`<div class="eh-item" id="ehi_${idx}" data-err="${hasErr}" onclick="revealEh(${idx})">
+  ERRORS.forEach(([sent,,, exp], idx)=>{
+    html+=`<div class="eh-item" id="ehi_${idx}">
       <div class="eh-num">${idx+1}</div>
       <div class="eh-body">
-        <div class="eh-sent">${sent}</div>
-        <div class="eh-exp">${exp}</div>
+        <div class="eh-sent" id="ehsent_${idx}">${sent}</div>
+        <div class="eh-judge-row" id="ehjudge_${idx}">
+          <button class="eh-judge-btn eh-correct-btn" onclick="judgeEh(${idx}, false)">✅ Correcto</button>
+          <button class="eh-judge-btn eh-error-btn"   onclick="judgeEh(${idx}, true)">❌ Tiene error</button>
+        </div>
+        <div class="eh-exp" id="ehexp_${idx}">${exp}</div>
       </div>
-      <div class="eh-badge" id="ehbadge_${idx}" style="display:none"></div>
     </div>`;
   });
 
   html+=`</div>
   <div class="fb" id="eh_fb" style="margin-top:12px"></div>
-  <div class="actions"><button class="btn btn-cyan" onclick="revealAllEh()">Reveal all</button><button class="btn btn-ghost" onclick="resetEh()">↺ Reset</button></div>
-  </div>`;
+  <div class="actions">
+    <button class="btn btn-ghost" onclick="resetEh()">↺ Reiniciar</button>
+  </div></div>`;
+
   document.getElementById('exContainer').innerHTML=html;
 }
 
-function revealEh(idx){
-  if(eh_answered[idx]) return;
-  eh_answered[idx]=true;
-  const [sent,hasErr,correction,exp]=ERRORS[idx];
+function judgeEh(idx, studentSaysError){
+  if(eh_answered[idx]!==undefined) return;
+  const [sent, hasErr, correction, exp]=ERRORS[idx];
+  const isCorrectJudgment = studentSaysError===hasErr;
+  eh_answered[idx]=isCorrectJudgment;
+
   const item=document.getElementById('ehi_'+idx);
-  const badge=document.getElementById('ehbadge_'+idx);
-  item.classList.add('revealed',hasErr?'wrong-sentence':'correct-sentence');
-  badge.style.display='inline-block';
-  badge.className='eh-badge '+(hasErr?'wrong-badge':'correct-badge');
-  badge.textContent=hasErr?'❌ Error':'✅ Correcto';
-  if(hasErr&&correction){
-    // highlight the wrong pronoun — find pronouns and mark them
-    const pronoums=['lo','la','los','las','le','les','se','me','te','nos','os'];
+  const judgeRow=document.getElementById('ehjudge_'+idx);
+  const expEl=document.getElementById('ehexp_'+idx);
+  const sentEl=document.getElementById('ehsent_'+idx);
+
+  // disable buttons and show which was chosen
+  judgeRow.querySelectorAll('.eh-judge-btn').forEach(btn=>btn.disabled=true);
+  if(studentSaysError){
+    item.querySelector('.eh-error-btn').classList.add(isCorrectJudgment?'judge-chosen-ok':'judge-chosen-err');
+  } else {
+    item.querySelector('.eh-correct-btn').classList.add(isCorrectJudgment?'judge-chosen-ok':'judge-chosen-err');
+  }
+
+  // style the card
+  item.classList.add('revealed', isCorrectJudgment?'correct-sentence':'wrong-sentence');
+
+  // if student was right AND sentence has error → highlight the wrong pronoun
+  if(hasErr && correction){
+    const pronouns=['lo','la','los','las','le','les','se','me','te','nos'];
     let h=sent;
-    pronoums.forEach(p=>{
+    pronouns.forEach(p=>{
       const re=new RegExp(`\\b${p}\\b`,'gi');
-      // Only mark if correction suggests different
-      if(correction&&!correction.toLowerCase().includes(p.toLowerCase())){
+      if(!correction.toLowerCase().includes(p.toLowerCase())){
         h=h.replace(re,`<span class="wrong-word">${p}</span>`);
       }
     });
-    item.querySelector('.eh-sent').innerHTML=h;
+    sentEl.innerHTML=h + (correction?` <span class="eh-correction">→ <strong>${correction}</strong></span>`:'');
   }
-  const done=Object.keys(eh_answered).length;
-  if(done===ERRORS.length){
+
+  // show explanation
+  expEl.classList.add('show');
+
+  // update score
+  const totalAnswered=Object.keys(eh_answered).length;
+  const totalOk=Object.values(eh_answered).filter(v=>v).length;
+  const totalWrong=totalAnswered-totalOk;
+  const pct=Math.round(totalAnswered/ERRORS.length*100);
+
+  const okEl=document.getElementById('eh_ok'); if(okEl)okEl.textContent=totalOk;
+  const errEl=document.getElementById('eh_err'); if(errEl)errEl.textContent=totalWrong;
+  const pctEl=document.getElementById('eh_pct'); if(pctEl)pctEl.textContent=pct+'%';
+  const pgEl=document.getElementById('eh_prog'); if(pgEl)pgEl.style.width=pct+'%';
+
+  // final message
+  if(totalAnswered===ERRORS.length){
+    const finalPct=Math.round(totalOk/ERRORS.length*100);
     const fb=document.getElementById('eh_fb');
-    fb.className='fb show ok';
-    fb.innerHTML=`✓ ¡Revelaste todo! ${ERRORS.filter(e=>e[1]).length} errores de ${ERRORS.length} oraciones.`;
+    if(finalPct===100){ fb.className='fb show ok'; fb.innerHTML=`🏆 <strong>¡Perfecto! ${totalOk}/${ERRORS.length}.</strong> Identificaste todos los errores correctamente.`; }
+    else if(finalPct>=70){ fb.className='fb show ok'; fb.innerHTML=`👍 <strong>${totalOk}/${ERRORS.length}.</strong> Muy bien. Revisa los que marcaste mal.`; }
+    else { fb.className='fb show partial'; fb.innerHTML=`📖 <strong>${totalOk}/${ERRORS.length}.</strong> Repasa las reglas de OD/OI y vuelve a intentarlo.`; }
   }
 }
-function revealAllEh(){ ERRORS.forEach((_,i)=>revealEh(i)); }
+
 function resetEh(){ eh_answered={}; renderErrorHunt(); }
-function setEhFilter(f){
-  ehFilter=f;
-  ['all','err','ok'].forEach(k=>{
-    const b=document.getElementById('ehf-'+k);
-    if(b) b.className='eh-f'+(k===f?' on':'');
-  });
-  document.querySelectorAll('.eh-item').forEach(item=>{
-    const isErr=item.dataset.err==='true';
-    if(f==='all') item.style.display='';
-    else if(f==='err') item.style.display=isErr?'':'none';
-    else item.style.display=isErr?'none':'';
-  });
-}
 
 /* ═══════════════════════════════════════════════════════
    EX 4 — SORT
